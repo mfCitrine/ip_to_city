@@ -7,13 +7,13 @@ venv/
 env/
 
 # 数据文件（大体积，不提交原始数据；仅发布到 Release）
-data/raw/
-data/build/
+data/
 *.mmdb
 *.csv
 *.gz
 *.tar.gz
 *.zip
+*.dat
 
 # 密钥
 .env

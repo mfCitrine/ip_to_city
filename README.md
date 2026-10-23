@@ -23,7 +23,7 @@
 
 ## 特性
 
-- **多源交叉验证**：对每个 IP 段用多个独立来源投票，取一致结果，冲突则按来源可信度加权。
+- **分层多源融合**：中国区用纯真（省市区最准），非中国区用 DB-IP（全球城市级），国家维度用 RIR 权威数据，各取所长而非简单混用。
 - **置信度字段**：每条结果附 `confidence`（0~100），让你知道"这条数据有多可信"。
 - **IP 类型标注**：区分 `mobile`（移动蜂窝）、`isp`（家宽）、`idc`（机房/云）、`vpn`（代理），并据此给出合理的精度承诺。
 - **多语言开箱即用**：采用标准 **MaxMind mmdb 格式**，Go / Java / PHP / Python 用官方库直接读取，无需自研 SDK。
@@ -33,7 +33,7 @@
 
 ### 1. 下载数据
 
-到 [Releases](https://github.com/yourname/ipgeo/releases) 下载最新 `ipgeo-city.mmdb`。
+到 [Releases](https://github.com/mfphp/ip_to_city/releases) 下载最新 `ipgeo-city.mmdb`。
 
 ### 2. 各语言接入
 

@@ -21,7 +21,9 @@ from ipgeo.download import rir as rir_dl            # noqa: E402
 from ipgeo.download import dbip as dbip_dl          # noqa: E402
 from ipgeo.download import geolite2 as gl2_dl       # noqa: E402
 from ipgeo.merge import parsers                     # noqa: E402
+from ipgeo.merge.dbip_grouped import parse_dbip_csv_v4  # noqa: E402
 from ipgeo.merge.aggregate import aggregate, resolve_overlap  # noqa: E402
+from ipgeo.merge.vote import MergedRecord           # noqa: E402
 from ipgeo.output.writer import write_mmdb, write_csv  # noqa: E402
 
 DATA_RAW = ROOT / "data" / "raw"
@@ -51,11 +53,13 @@ def do_download():
         dbip_dl.download_dbip(DATA_RAW / "dbip")
     except Exception as e:  # noqa: BLE001
         print(f"[warn] DB-IP 下载失败（跳过）: {e}")
-    # GeoLite2（需 MaxMind 凭证）
+    # GeoLite2（需 MaxMind 凭证；从中国境内会 451 被禁，建议在 GitHub Actions 跑）
     try:
         gl2_dl.download_geolite2(DATA_RAW / "geolite2")
     except Exception as e:  # noqa: BLE001
         print(f"[warn] GeoLite2 下载失败（跳过）: {e}")
+        print("  提示：GeoLite2 禁止从中国大陆下载（美国数据出境法规，HTTP 451）。")
+        print("  可改用 DB-IP + APNIC + 纯真，或在 GitHub Actions（海外）运行本流程。")
     print("下载完成。")
 
 
@@ -93,16 +97,17 @@ def do_build():
     else:
         print("  [warn] GeoLite2 目录缺失")
 
-    # DB-IP
+    # DB-IP（优先用高性能 CSV 分组解析）
     dbip_dir = DATA_RAW / "dbip"
     if dbip_dir.exists():
-        gz_files = list(dbip_dir.glob("*.mmdb.gz"))
-        if gz_files:
-            mmdb_path = parsers.gunzip(gz_files[0], DATA_BUILD / "dbip" / "dbip-city.mmdb")
-            records.extend(parsers.parse_dbip_city(mmdb_path))
-            print("  DB-IP: 已解析")
+        csv_files = list(dbip_dir.glob("*.csv.gz"))
+        if csv_files:
+            for cf in csv_files:
+                recs = parse_dbip_csv_v4(cf)
+                records.extend(recs)
+                print(f"  DB-IP CSV {cf.name}: {len(recs)} 条")
         else:
-            print("  [warn] DB-IP 数据缺失")
+            print("  [warn] DB-IP CSV 数据缺失")
 
     if not records:
         print("✗ 无任何数据源可用，无法构建。请先运行 --download-only 并配置凭证。")

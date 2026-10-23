@@ -1,0 +1,8 @@
+# 统一行尾，避免 Windows/Linux 协作时的 CRLF/LF 混乱
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf

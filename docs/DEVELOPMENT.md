@@ -4,7 +4,7 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/yourname/ipgeo.git
+git clone https://github.com/mfphp/ip_to_city.git
 cd ipgeo
 
 # 2. 创建虚拟环境并安装依赖
