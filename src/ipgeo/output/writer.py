@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from mmdb_writer import MMDBWriter
+from mmdb_writer import MMDBWriter, MmdbU16, MmdbU32
 
 from ..merge.vote import MergedRecord
 
@@ -45,7 +45,8 @@ def to_mmdb_dict(m: MergedRecord) -> dict:
             "names": _names(country_name, m.country),
         },
         "city": {"names": _names(m.city)} if m.city else {},
-        "location": {"accuracy_radius": 0},
+        # accuracy_radius 用 uint16（Java geoip2 Location 期望 uint16）
+        "location": {"accuracy_radius": MmdbU16(0)},
     }
     # subdivisions 为空时不输出该键：PHP geoip2 官方库遇到空数组会取
     # count-1 = -1 下标导致报错（Go/Python 能容忍，但 PHP 不行）。
@@ -56,11 +57,14 @@ def to_mmdb_dict(m: MergedRecord) -> dict:
         "isp": m.isp or "",
         "organization": m.isp or "",
         "network_type": m.network_type or "isp",
-        "confidence": m.confidence,
+        # confidence 用 uint16
+        "confidence": MmdbU16(m.confidence),
     }
     if m.asn:
         try:
-            node["traits"]["autonomous_system_number"] = int(m.asn)
+            # autonomous_system_number 必须用 uint32（Java geoip2 期望 uint32，
+            # 写成 uint16 会导致反序列化 NullPointerException）
+            node["traits"]["autonomous_system_number"] = MmdbU32(int(m.asn))
         except ValueError:
             pass
     return node
@@ -77,6 +81,8 @@ def write_mmdb(records: list[MergedRecord], out_path: Path,
         # 必须用 GeoLite2-City 标准名称，Go/Java 等语言的 geoip2 官方库
         # 会严格校验 database_type，自定义名称会被拒绝打开。
         database_type="GeoLite2-City",
+        # int_type 用默认 auto：具体字段类型已通过 MmdbU16/MmdbU32 显式标注
+        # （accuracy_radius/confidence→u16，autonomous_system_number→u32）。
         languages=["zh-CN", "en"],
         description={
             "en": "ipgeo multi-source merged IP geolocation database",

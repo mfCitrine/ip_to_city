@@ -1,20 +1,26 @@
-"""最终构建：分层融合（中国区用纯真，非中国区用 DB-IP）。
+"""Phase 2 构建：人工订正 + ASN 国家仲裁 + ASN 增强 的分层融合。
 
-策略（MVP）：
-  1. DB-IP 解析全量，按 country 拆中国段与非中国段。
-  2. 中国区：用纯真数据（国内省市区精度最高，覆盖 DB-IP 中国段）。
-  3. 非中国区：用 DB-IP（全球城市级）。
-  4. 合并输出 mmdb + csv。
-
-说明：纯真与 DB-IP 在国家归属上的边界冲突（如 101.47.x 部分段），
-以 DB-IP 的 country 字段为准进行大分类；这类「中外出让边界」IP 的
-精确归属留待 Phase 2 用 BGP/ASN 与人工订正解决。
+流程：
+  1. 解析 DB-IP（全量），构建 IP→country 范围索引。
+  2. 导出纯真中国区段。
+  3. 加载 iptoasn（origin AS 国家，权威仲裁源）。
+  4. 纯真段仲裁：
+     - DB-IP 也判中国 → 无冲突，保留（避开 anycast 误导）。
+     - DB-IP 判国外 → 冲突，查 iptoasn：iptoasn 判中国则保留纯真，
+       否则视为「假中国段」剔除（该 IP 实际已转让国外，交给 DB-IP 覆盖）。
+     同时用 iptoasn 的 ASN/描述增强国内段的运营商字段。
+  5. 合并：纯真真中国段 + DB-IP 非中国段 + 人工订正（最高优先级，最后写入）。
+  6. 输出 mmdb + csv。
 """
 
 from __future__ import annotations
 
+import ipaddress
+import socket
+import struct
 import sys
 import time
+from bisect import bisect_right
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,11 +28,18 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from ipgeo.merge.dbip_grouped import parse_dbip_csv_v4  # noqa: E402
 from ipgeo.merge.cz88_export import export_cn_records  # noqa: E402
+from ipgeo.merge.iptoasn import IptoasnIndex  # noqa: E402
+from ipgeo.merge.corrections import load_corrections  # noqa: E402
 from ipgeo.merge.vote import MergedRecord, Record  # noqa: E402
 from ipgeo.output.writer import write_mmdb, write_csv  # noqa: E402
 
 DATA_RAW = ROOT / "data" / "raw"
 DATA_RELEASE = ROOT / "data" / "release"
+CORRECTIONS = ROOT / "corrections.csv"
+
+
+def _ip2int(ip: str) -> int:
+    return struct.unpack("!I", socket.inet_aton(ip))[0]
 
 
 def _rec_to_merged(r: Record, confidence: int) -> MergedRecord:
@@ -40,36 +53,90 @@ def _rec_to_merged(r: Record, confidence: int) -> MergedRecord:
 def main():
     t0 = time.time()
 
-    print("[1/5] 解析 DB-IP ...")
+    print("[1/6] 解析 DB-IP ...")
     dbip = parse_dbip_csv_v4(DATA_RAW / "dbip" / "dbip-city-lite.csv.gz")
     dbip_other = [r for r in dbip if r.country != "CN"]
     print(f"  DB-IP 非中国 {len(dbip_other)} 段")
 
-    print("[2/5] 导出纯真中国区 ...")
+    # 构建 DB-IP country 范围索引（起始 IP -> country）
+    print("  构建 DB-IP country 索引 ...")
+    dbip_ranges: list[tuple[int, int, str]] = []
+    for r in dbip:
+        cidr = r.network
+        base = cidr.split("/")[0]
+        s = _ip2int(base)
+        plen = int(cidr.split("/")[1])
+        e = s + (1 << (32 - plen)) - 1
+        dbip_ranges.append((s, e, r.country))
+    dbip_ranges.sort(key=lambda x: x[0])
+    dbip_starts = [x[0] for x in dbip_ranges]
+    del dbip  # 释放内存
+    print(f"  DB-IP 索引 {len(dbip_ranges)} 段")
+
+    print("[2/6] 导出纯真中国区 ...")
     cz88_path = DATA_RAW / "cz88" / "qqwry.dat"
-    if cz88_path.exists():
-        cz88 = export_cn_records(cz88_path)
-        print(f"  纯真中国区 {len(cz88)} 段")
-    else:
-        cz88 = []
-        print("  [warn] 纯真缺失")
+    cz88 = export_cn_records(cz88_path) if cz88_path.exists() else []
+    print(f"  纯真中国区 {len(cz88)} 段")
 
-    print("[3/5] 分层融合 ...")
-    if cz88:
-        merged_records = [_rec_to_merged(r, confidence=80) for r in cz88]
-    else:
-        dbip_cn = [r for r in dbip if r.country == "CN"]
-        merged_records = [_rec_to_merged(r, confidence=60) for r in dbip_cn]
-    merged_records += [_rec_to_merged(r, confidence=60) for r in dbip_other]
-    print(f"  合计 {len(merged_records)} 段")
+    print("[3/6] 加载 iptoasn 索引 ...")
+    ip2asn_path = DATA_RAW / "ip2asn.tsv.gz"
+    iptoasn = IptoasnIndex(ip2asn_path) if ip2asn_path.exists() else None
+    print(f"  iptoasn {len(iptoasn) if iptoasn else 0} 段")
 
-    print("[4/5] 输出 mmdb ...")
+    print("[4/6] 纯真段国家仲裁 ...")
+    keep_cn: list[Record] = []
+    removed: list[Record] = []
+    for r in cz88:
+        start_ip = r.network.split("/")[0]
+        start_int = _ip2int(start_ip)
+        idx = bisect_right(dbip_starts, start_int) - 1
+        dbip_country = ""
+        if idx >= 0:
+            s, e, c = dbip_ranges[idx]
+            if s <= start_int <= e:
+                dbip_country = c
+
+        if dbip_country == "CN" or dbip_country == "":
+            # 无冲突（DB-IP 也判中国，或 DB-IP 未覆盖）→ 保留纯真
+            keep_cn.append(r)
+        else:
+            # 冲突：纯真说中国、DB-IP 说国外，用 iptoasn 仲裁
+            asn_info = iptoasn.lookup(start_ip) if iptoasn else None
+            if asn_info and asn_info[0] == "CN":
+                # iptoasn origin AS 也是中国 → 纯真对，保留并增强 ASN
+                r.asn = str(asn_info[1])
+                keep_cn.append(r)
+            else:
+                # 实际已转让国外 → 假中国段，剔除
+                removed.append(r)
+
+    print(f"  保留中国段 {len(keep_cn)}，剔除假中国段 {len(removed)}")
+
+    # ASN 增强：对保留的国内段，用 iptoasn 补 ASN 与英文运营商名
+    if iptoasn:
+        enhanced = 0
+        for r in keep_cn:
+            if not r.asn:
+                info = iptoasn.lookup(r.network.split("/")[0])
+                if info and info[0] == "CN":
+                    r.asn = str(info[1])
+                    enhanced += 1
+        print(f"  国内段 ASN 增强 {enhanced} 段")
+
+    print("[5/6] 合并输出 ...")
+    merged = [_rec_to_merged(r, confidence=80) for r in keep_cn]
+    merged += [_rec_to_merged(r, confidence=60) for r in dbip_other]
+    # 人工订正最高优先级，最后写入（mmdb 后写覆盖）
+    corrections = load_corrections(CORRECTIONS)
+    merged += corrections
+    print(f"  纯真中国 {len(keep_cn)} + DB-IP国外 {len(dbip_other)} "
+          f"+ 订正 {len(corrections)} = {len(merged)} 段")
+
     t1 = time.time()
-    write_mmdb(merged_records, DATA_RELEASE / "ipgeo-city.mmdb")
+    write_mmdb(merged, DATA_RELEASE / "ipgeo-city.mmdb")
     print(f"  mmdb 完成 {round(time.time() - t1, 1)}s")
 
-    print("[5/5] 输出 csv ...")
-    write_csv(merged_records, DATA_RELEASE / "ipgeo-city.csv")
+    write_csv(merged, DATA_RELEASE / "ipgeo-city.csv")
 
     print(f"\n总耗时 {round(time.time() - t0, 1)}s")
     print(f"输出: {DATA_RELEASE / 'ipgeo-city.mmdb'}")

@@ -17,7 +17,7 @@ IP 库的核心价值在于"准"。如果你发现某个 IP 段定位错误，�
 
 ### 方式二：直接提交 PR
 
-编辑 `data/corrections.csv`，格式：
+编辑 `corrections.csv`，格式：
 
 ```csv
 network,country,province,city,isp,source,evidence,date
