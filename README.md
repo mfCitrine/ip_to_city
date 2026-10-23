@@ -33,7 +33,7 @@
 
 ### 1. 下载数据
 
-到 [Releases](https://github.com/mfphp/ip_to_city/releases) 下载最新 `ipgeo-city.mmdb`。
+到 [Releases](https://github.com/mfCitrine/ip_to_city/releases) 下载最新 `ipgeo-city.mmdb`。
 
 ### 2. 各语言接入
 

@@ -6,7 +6,7 @@
 
 ### 方式一：网页创建（推荐）
 
-1. 登录 https://github.com/mfphp
+1. 登录 https://github.com/mfCitrine
 2. 右上角 **+** → **New repository**
 3. 填写：
    - Repository name: `ip_to_city`
@@ -18,7 +18,7 @@
 ### 方式二：命令行（需先装 gh）
 
 ```bash
-gh auth login        # 登录 mfphp 账号
+gh auth login        # 登录 mfCitrine 账号
 gh repo create ip_to_city --public --description "多源融合的高精度开源 IP 地理位置库"
 ```
 
@@ -28,7 +28,7 @@ gh repo create ip_to_city --public --description "多源融合的高精度开源
 
 ```bash
 cd E:\pro\ipgeo
-git remote add origin https://github.com/mfphp/ip_to_city.git
+git remote add origin https://github.com/mfCitrine/ip_to_city.git
 git branch -M main
 git push -u origin main
 ```

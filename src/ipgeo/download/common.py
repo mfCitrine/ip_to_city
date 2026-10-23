@@ -8,7 +8,7 @@ from pathlib import Path
 
 import requests
 
-DEFAULT_UA = "ipgeo/0.1 (+https://github.com/mfphp/ip_to_city)"
+DEFAULT_UA = "ipgeo/0.1 (+https://github.com/mfCitrine/ip_to_city)"
 
 
 def download(url: str, dest: Path, retries: int = 3, timeout: int = 120,
