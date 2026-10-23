@@ -17,8 +17,8 @@ def load_corrections(csv_path: Path) -> list[MergedRecord]:
     if not csv_path.exists():
         return []
     records: list[MergedRecord] = []
-    with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
-        # 跳过注释行（# 开头）
+    with open(csv_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+        # 跳过注释行（# 开头），并去除表头可能的 BOM
         lines = [ln for ln in f if not ln.lstrip().startswith("#")]
     reader = csv.DictReader(lines)
     for row in reader:

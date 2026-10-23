@@ -1,0 +1,5 @@
+network,country,province,city,isp,source,evidence,date
+# 格式说明：每行一个网段订正，字段依次为 CIDR/国家/省/市/运营商/来源/证据/日期
+# 人工订正优先级最高，覆盖自动融合结果。空字段留空即可。
+# 示例（注释行不会被读取，使用时请去掉行首 # 并按需修改）：
+# 101.47.16.0/20,SG,,Singapore,Byteplus Pte. Ltd.,manual,BGP origin AS150436 Byteplus,2026-10-23

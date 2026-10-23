@@ -2,7 +2,7 @@ name: build-and-release
 
 on:
   schedule:
-    - cron: '0 2 * * 1'   # 每周一凌晨 2 点
+    - cron: '0 2 * * 1'   # 每周一凌晨 2 点（UTC）
   workflow_dispatch:       # 支持手动触发
 
 permissions:
@@ -19,16 +19,17 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install maxminddb geoip2 requests
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Download data sources
         env:
-          MAXMIND_ACCOUNT_ID: ${{ secrets.MAXMIND_ACCOUNT_ID }}
-          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
-        run: python scripts/run_pipeline.py --download-only
+          CZ88_URL: ${{ secrets.CZ88_URL }}
+        run: python scripts/download_phase2.py --with-cz88
 
       - name: Build merged database
-        run: python scripts/run_pipeline.py --build-only
+        run: python scripts/build_final.py
 
       - name: Run smoke tests
         run: python scripts/test.py
@@ -40,5 +41,4 @@ jobs:
           name: "IP 数据库 ${{ github.run_id }}"
           files: |
             data/release/ipgeo-city.mmdb
-            data/release/ipgeo-asn.mmdb
             data/release/ipgeo-city.csv

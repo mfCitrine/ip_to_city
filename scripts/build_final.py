@@ -56,7 +56,8 @@ def main():
     print("[1/6] 解析 DB-IP ...")
     dbip = parse_dbip_csv_v4(DATA_RAW / "dbip" / "dbip-city-lite.csv.gz")
     dbip_other = [r for r in dbip if r.country != "CN"]
-    print(f"  DB-IP 非中国 {len(dbip_other)} 段")
+    dbip_cn = [r for r in dbip if r.country == "CN"]
+    print(f"  DB-IP 非中国 {len(dbip_other)} 段，中国 {len(dbip_cn)} 段")
 
     # 构建 DB-IP country 范围索引（起始 IP -> country）
     print("  构建 DB-IP country 索引 ...")
@@ -77,6 +78,10 @@ def main():
     cz88_path = DATA_RAW / "cz88" / "qqwry.dat"
     cz88 = export_cn_records(cz88_path) if cz88_path.exists() else []
     print(f"  纯真中国区 {len(cz88)} 段")
+
+    # 若纯真缺失（如 GitHub Actions 无私有数据），中国区由 DB-IP 中国段兜底
+    if not cz88:
+        print("  [warn] 纯真缺失，中国区降级为 DB-IP 中国段兜底（省市区精度降低）")
 
     print("[3/6] 加载 iptoasn 索引 ...")
     ip2asn_path = DATA_RAW / "ip2asn.tsv.gz"
@@ -112,8 +117,21 @@ def main():
 
     print(f"  保留中国段 {len(keep_cn)}，剔除假中国段 {len(removed)}")
 
+    # 纯真缺失时，用 DB-IP 中国段兜底（并做 ASN 增强）
+    if not cz88:
+        keep_cn = dbip_cn
+        if iptoasn:
+            enhanced = 0
+            for r in keep_cn:
+                if not r.asn:
+                    info = iptoasn.lookup(r.network.split("/")[0])
+                    if info and info[0] == "CN":
+                        r.asn = str(info[1])
+                        enhanced += 1
+            print(f"  DB-IP 中国兜底段 ASN 增强 {enhanced} 段")
+
     # ASN 增强：对保留的国内段，用 iptoasn 补 ASN 与英文运营商名
-    if iptoasn:
+    if cz88 and iptoasn:
         enhanced = 0
         for r in keep_cn:
             if not r.asn:
@@ -129,7 +147,8 @@ def main():
     # 人工订正最高优先级，最后写入（mmdb 后写覆盖）
     corrections = load_corrections(CORRECTIONS)
     merged += corrections
-    print(f"  纯真中国 {len(keep_cn)} + DB-IP国外 {len(dbip_other)} "
+    src_label = "纯真" if cz88 else "DB-IP兜底"
+    print(f"  {src_label}中国 {len(keep_cn)} + DB-IP国外 {len(dbip_other)} "
           f"+ 订正 {len(corrections)} = {len(merged)} 段")
 
     t1 = time.time()

@@ -35,30 +35,27 @@ git push -u origin main
 
 > 如果本地默认分支是 `master`，用 `git branch -M main` 统一为 `main`。
 
-## 三、配置 GitHub Actions 密钥（用于自动周更）
+## 三、配置 GitHub Actions 密钥（可选，用于纯真增强）
 
-为了让 GitHub Actions 能在海外 runner 上下载 GeoLite2 并自动构建，需要配置密钥：
+新流程（`build_final.py`）自动下载 DB-IP CSV + iptoasn，无需 MaxMind 凭证即可构建。
+
+唯一可选增强是**纯真 qqwry.dat**：因其 License 不允许打包进公开仓库再分发，
+需自行托管到私有对象存储/私有 gist，再通过 Secret 传入 URL：
 
 1. 仓库页面 → **Settings** → **Secrets and variables** → **Actions**
-2. 点击 **New repository secret**，添加两个：
-   - 名称 `MAXMIND_ACCOUNT_ID`，值填你的 MaxMind Account ID
-   - 名称 `MAXMIND_LICENSE_KEY`，值填你的 MaxMind License Key
+2. 点击 **New repository secret**，添加：
+   - 名称 `CZ88_URL`，值填你的纯真 qqwry.dat 的私有下载 URL（可公开访问的直链）
 
-> ⚠️ 密钥切勿明文写入代码或文档（GitHub 会触发 Push Protection 拦截）。
-> 请从 MaxMind 账号后台的 Manage License Keys 页面复制。
-
-> 这样 GitHub Actions（美国服务器）就能下载 GeoLite2（绕过国内 451 限制），
-> 每周自动构建并发 Release。
+> 不配置 `CZ88_URL` 也能正常构建：中国区会降级为 DB-IP 中国段兜底，
+> 省市区精度略低于纯真，但流程全自动。
 
 ## 四、手动触发首次构建
-
-配置好密钥后：
 
 1. 仓库页面 → **Actions** 标签
 2. 左侧选择 **build-and-release**
 3. 点击 **Run workflow** → **Run workflow**
 
-首次构建会下载数据源、融合、产出 `ipgeo-city.mmdb` 并自动发布 Release。
+首次构建会下载数据源、融合、产出 `ipgeo-city.mmdb` / `ipgeo-city.csv` 并自动发布 Release。
 
 ## 五、验证
 
@@ -68,5 +65,6 @@ git push -u origin main
 
 ## 注意事项
 
-- 纯真 `qqwry.dat` **不提交**到仓库（License 限制），仅本地校验用。已在 `.gitignore` 中排除 `data/raw/`。
+- 纯真 `qqwry.dat` **不提交**到仓库（License 限制）。可通过 `CZ88_URL` Secret 在 CI 中可选拉取。
+- `corrections.csv`（人工订正）**会提交**到仓库，构建时自动合并（最高优先级）。
 - 数据 License 为 CC BY-SA 4.0（见 LICENSE-DATA），保留各数据源署名。

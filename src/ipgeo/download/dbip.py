@@ -28,6 +28,17 @@ def download_dbip_city(out_dir: Path) -> Path:
     return download(url, out_dir / "dbip-city-lite.mmdb.gz")
 
 
+def download_dbip_city_csv(out_dir: Path) -> Path:
+    """下载 DB-IP city-lite 的 CSV 格式（高性能整数区间解析用）。
+
+    CSV 格式同样公开可下载（已验证），文件名含年月，如
+    dbip-city-lite-2026-10.csv.gz。
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    url = f"{_BASE}/dbip-city-lite-{_month_tag()}.csv.gz"
+    return download(url, out_dir / "dbip-city-lite.csv.gz")
+
+
 def download_dbip_asn(out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     url = f"{_BASE}/dbip-asn-lite-{_month_tag()}.mmdb.gz"

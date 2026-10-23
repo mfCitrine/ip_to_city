@@ -52,7 +52,7 @@ def _split_location(loc: str) -> tuple[str, str, str]:
 def parse_cz88(db_path: Path) -> "QQWryAdapter":
     """加载纯真库，返回适配器（懒查询）。"""
     import qqwry
-    q = qqwry.QQWry()
+    q = qqwry.QQwry()
     if not q.load_file(str(db_path)):
         raise RuntimeError(f"纯真库加载失败: {db_path}")
     return QQWryAdapter(q)

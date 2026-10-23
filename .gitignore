@@ -15,6 +15,9 @@ data/
 *.zip
 *.dat
 
+# 人工订正文件（元数据，需提交到仓库，供 CI 构建时合并）
+!corrections.csv
+
 # 密钥
 .env
 *.key
