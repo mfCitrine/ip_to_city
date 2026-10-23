@@ -44,10 +44,13 @@ def to_mmdb_dict(m: MergedRecord) -> dict:
             "iso_code": m.country,
             "names": _names(country_name, m.country),
         },
-        "subdivisions": [{"names": _names(m.province)}] if m.province else [],
         "city": {"names": _names(m.city)} if m.city else {},
         "location": {"accuracy_radius": 0},
     }
+    # subdivisions 为空时不输出该键：PHP geoip2 官方库遇到空数组会取
+    # count-1 = -1 下标导致报错（Go/Python 能容忍，但 PHP 不行）。
+    if m.province:
+        node["subdivisions"] = [{"names": _names(m.province)}]
     # 扩展字段：放在 traits 下
     node["traits"] = {
         "isp": m.isp or "",
@@ -71,7 +74,9 @@ def write_mmdb(records: list[MergedRecord], out_path: Path,
 
     writer = MMDBWriter(
         ip_version=ip_version,
-        database_type="ipgeo-City",
+        # 必须用 GeoLite2-City 标准名称，Go/Java 等语言的 geoip2 官方库
+        # 会严格校验 database_type，自定义名称会被拒绝打开。
+        database_type="GeoLite2-City",
         languages=["zh-CN", "en"],
         description={
             "en": "ipgeo multi-source merged IP geolocation database",
