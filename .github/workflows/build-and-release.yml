@@ -12,11 +12,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+
+      - name: Add swap (防 OOM，mmdb 写入内存峰值高)
+        run: |
+          sudo fallocate -l 12G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
       - name: Install dependencies
         run: |
@@ -29,6 +37,8 @@ jobs:
         run: python scripts/download_phase2.py --with-cz88
 
       - name: Build merged database
+        env:
+          PYTHONUNBUFFERED: 1   # 实时输出日志，便于排查
         run: python scripts/build_final.py
 
       - name: Run smoke tests

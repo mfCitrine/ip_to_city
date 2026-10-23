@@ -23,7 +23,7 @@ SOURCE_WEIGHT = {
 }
 
 
-@dataclass
+@dataclass(slots=True)
 class Record:
     """单个数据源对某个 IP 前缀的判定结果。"""
     network: str              # CIDR
@@ -36,7 +36,7 @@ class Record:
     network_type: str = ""    # isp/mobile/idc/vpn
 
 
-@dataclass
+@dataclass(slots=True)
 class MergedRecord:
     """融合后的最终记录。"""
     network: str

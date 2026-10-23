@@ -20,6 +20,7 @@ import socket
 import struct
 import sys
 import time
+from array import array
 from bisect import bisect_right
 from pathlib import Path
 
@@ -37,6 +38,14 @@ DATA_RAW = ROOT / "data" / "raw"
 DATA_RELEASE = ROOT / "data" / "release"
 CORRECTIONS = ROOT / "corrections.csv"
 
+# 字符串驻留缓存：城市/省份/ISP 等字段在数百万记录间大量重复，
+# 去重后可节省数 GB 内存（OOM 关键优化）
+_str_cache: dict[str, str] = {}
+
+
+def _intern(s: str) -> str:
+    return _str_cache.setdefault(s, s)
+
 
 def _ip2int(ip: str) -> int:
     return struct.unpack("!I", socket.inet_aton(ip))[0]
@@ -44,8 +53,9 @@ def _ip2int(ip: str) -> int:
 
 def _rec_to_merged(r: Record, confidence: int) -> MergedRecord:
     return MergedRecord(
-        network=r.network, country=r.country, province=r.province,
-        city=r.city, isp=r.isp, asn=r.asn,
+        network=r.network, country=_intern(r.country),
+        province=_intern(r.province), city=_intern(r.city),
+        isp=_intern(r.isp), asn=_intern(r.asn),
         network_type="isp", confidence=confidence, sources=[r.source],
     )
 
@@ -59,20 +69,32 @@ def main():
     dbip_cn = [r for r in dbip if r.country == "CN"]
     print(f"  DB-IP 非中国 {len(dbip_other)} 段，中国 {len(dbip_cn)} 段")
 
-    # 构建 DB-IP country 范围索引（起始 IP -> country）
+    # 构建 DB-IP country 范围索引（平行数组，比元组列表省 ~700MB）
     print("  构建 DB-IP country 索引 ...")
-    dbip_ranges: list[tuple[int, int, str]] = []
+    range_starts = array("I")
+    range_ends = array("I")
+    range_countries: list[str] = []
     for r in dbip:
         cidr = r.network
         base = cidr.split("/")[0]
         s = _ip2int(base)
         plen = int(cidr.split("/")[1])
         e = s + (1 << (32 - plen)) - 1
-        dbip_ranges.append((s, e, r.country))
-    dbip_ranges.sort(key=lambda x: x[0])
-    dbip_starts = [x[0] for x in dbip_ranges]
-    del dbip  # 释放内存
-    print(f"  DB-IP 索引 {len(dbip_ranges)} 段")
+        range_starts.append(s)
+        range_ends.append(e)
+        range_countries.append(_intern(r.country))
+    order = sorted(range(len(range_starts)), key=lambda i: range_starts[i])
+    range_starts = array("I", (range_starts[i] for i in order))
+    range_ends = array("I", (range_ends[i] for i in order))
+    range_countries = [range_countries[i] for i in order]
+    del dbip, order  # 释放 780 万 Record 对象容器
+    print(f"  DB-IP 索引 {len(range_starts)} 段")
+
+    # 提前把 DB-IP 记录转成 MergedRecord，释放数百万原始 Record
+    dbip_other_m = [_rec_to_merged(r, confidence=60) for r in dbip_other]
+    del dbip_other
+    dbip_cn_m = [_rec_to_merged(r, confidence=60) for r in dbip_cn]
+    del dbip_cn
 
     print("[2/6] 导出纯真中国区 ...")
     cz88_path = DATA_RAW / "cz88" / "qqwry.dat"
@@ -94,12 +116,10 @@ def main():
     for r in cz88:
         start_ip = r.network.split("/")[0]
         start_int = _ip2int(start_ip)
-        idx = bisect_right(dbip_starts, start_int) - 1
+        idx = bisect_right(range_starts, start_int) - 1
         dbip_country = ""
-        if idx >= 0:
-            s, e, c = dbip_ranges[idx]
-            if s <= start_int <= e:
-                dbip_country = c
+        if idx >= 0 and start_int <= range_ends[idx]:
+            dbip_country = range_countries[idx]
 
         if dbip_country == "CN" or dbip_country == "":
             # 无冲突（DB-IP 也判中国，或 DB-IP 未覆盖）→ 保留纯真
@@ -116,13 +136,13 @@ def main():
                 removed.append(r)
 
     print(f"  保留中国段 {len(keep_cn)}，剔除假中国段 {len(removed)}")
+    del removed
 
     # 纯真缺失时，用 DB-IP 中国段兜底（并做 ASN 增强）
     if not cz88:
-        keep_cn = dbip_cn
         if iptoasn:
             enhanced = 0
-            for r in keep_cn:
+            for r in dbip_cn_m:
                 if not r.asn:
                     info = iptoasn.lookup(r.network.split("/")[0])
                     if info and info[0] == "CN":
@@ -143,13 +163,13 @@ def main():
 
     print("[5/6] 合并输出 ...")
     merged = [_rec_to_merged(r, confidence=80) for r in keep_cn]
-    merged += [_rec_to_merged(r, confidence=60) for r in dbip_other]
+    del keep_cn, cz88
+    merged += dbip_other_m
+    del dbip_other_m, dbip_cn_m
     # 人工订正最高优先级，最后写入（mmdb 后写覆盖）
     corrections = load_corrections(CORRECTIONS)
     merged += corrections
-    src_label = "纯真" if cz88 else "DB-IP兜底"
-    print(f"  {src_label}中国 {len(keep_cn)} + DB-IP国外 {len(dbip_other)} "
-          f"+ 订正 {len(corrections)} = {len(merged)} 段")
+    print(f"  合并总计 {len(merged)} 段（含订正 {len(corrections)} 段）")
 
     t1 = time.time()
     write_mmdb(merged, DATA_RELEASE / "ipgeo-city.mmdb")

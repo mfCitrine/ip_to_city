@@ -47,6 +47,13 @@ def download_cz88_from_url():
         print(f"[warn] 纯真下载失败（跳过，中国区用 DB-IP 兜底）: {e}")
 
 
+def _report(label: str, path: Path):
+    if path.exists() and path.stat().st_size > 0:
+        print(f"[ok] {label}: {path} ({path.stat().st_size / 1e6:.1f} MB)")
+    else:
+        print(f"[MISS] {label}: {path} 不存在")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--with-cz88", action="store_true",
@@ -54,16 +61,23 @@ def main():
     args = ap.parse_args()
 
     print("[1/3] 下载 DB-IP city-lite CSV ...")
+    dbip_csv = DATA_RAW / "dbip" / "dbip-city-lite.csv.gz"
     try:
         dbip_dl.download_dbip_city_csv(DATA_RAW / "dbip")
     except Exception as e:  # noqa: BLE001
         print(f"[warn] DB-IP CSV 下载失败: {e}")
+    _report("DB-IP CSV", dbip_csv)
+    if not dbip_csv.exists():
+        print("✗ DB-IP CSV 是必需数据源，缺失将无法构建，终止。")
+        sys.exit(1)
 
     print("[2/3] 下载 iptoasn ...")
+    ip2asn = DATA_RAW / "ip2asn.tsv.gz"
     try:
         iptoasn_dl.download_iptoasn(DATA_RAW)
     except Exception as e:  # noqa: BLE001
-        print(f"[warn] iptoasn 下载失败: {e}")
+        print(f"[warn] iptoasn 下载失败（构建将继续，但无 ASN 仲裁）: {e}")
+    _report("iptoasn", ip2asn)
 
     if args.with_cz88:
         print("[3/3] 尝试下载纯真（可选）...")
