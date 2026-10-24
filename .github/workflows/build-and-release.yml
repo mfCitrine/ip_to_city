@@ -18,7 +18,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Add swap (防 OOM，mmdb 写入内存峰值高)
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+          cache-dependency-path: scripts/mmdb_from_csv/go.sum
+
+      - name: Add swap (保险，Go 写 mmdb 后内存需求已大降)
         run: |
           set -x
           df -h /
@@ -49,10 +54,18 @@ jobs:
           CZ88_URL: ${{ secrets.CZ88_URL }}
         run: python scripts/download_phase2.py --with-cz88
 
-      - name: Build merged database
+      - name: Build merged database (CSV)
         env:
           PYTHONUNBUFFERED: 1   # 实时输出日志，便于排查
+          IPGEO_SKIP_MMDB: 1    # Python 只出 CSV，mmdb 交给 Go 转换器（防 OOM）
         run: python scripts/build_final.py
+
+      - name: Build mmdb via Go
+        run: |
+          cd scripts/mmdb_from_csv
+          go build -o /tmp/mmdb_from_csv .
+          /tmp/mmdb_from_csv ../../data/release/ipgeo-city.csv ../../data/release/ipgeo-city.mmdb
+          ls -la ../../data/release/
 
       - name: Run smoke tests
         run: python scripts/test.py

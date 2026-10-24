@@ -162,14 +162,28 @@ def main():
         print(f"  国内段 ASN 增强 {enhanced} 段")
 
     print("[5/6] 合并输出 ...")
-    merged = [_rec_to_merged(r, confidence=80) for r in keep_cn]
-    del keep_cn, cz88
+    if cz88:
+        merged = [_rec_to_merged(r, confidence=80) for r in keep_cn]
+        del keep_cn
+    else:
+        # 纯真缺失：中国区用 DB-IP 中国段兜底（bugfix：此前漏加导致中国区丢失）
+        merged = dbip_cn_m
+        print(f"  中国区来自 DB-IP 兜底 {len(merged)} 段")
     merged += dbip_other_m
     del dbip_other_m, dbip_cn_m
     # 人工订正最高优先级，最后写入（mmdb 后写覆盖）
     corrections = load_corrections(CORRECTIONS)
     merged += corrections
     print(f"  合并总计 {len(merged)} 段（含订正 {len(corrections)} 段）")
+
+    import os
+    if os.environ.get("IPGEO_SKIP_MMDB") == "1":
+        # CI 内存受限：CSV 由本脚本输出，mmdb 交给 Go 转换器生成
+        write_csv(merged, DATA_RELEASE / "ipgeo-city.csv")
+        del merged
+        print("\nIPGEO_SKIP_MMDB=1，跳过 Python mmdb 写入（由 Go 转换器生成）")
+        print(f"总耗时 {round(time.time() - t0, 1)}s")
+        return
 
     t1 = time.time()
     write_mmdb(merged, DATA_RELEASE / "ipgeo-city.mmdb")
