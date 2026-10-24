@@ -20,11 +20,24 @@ jobs:
 
       - name: Add swap (防 OOM，mmdb 写入内存峰值高)
         run: |
-          sudo fallocate -l 12G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          set -x
+          df -h /
           free -h
+          SWAP_SIZE=8G
+          AVAIL_KB=$(df -k / | awk 'NR==2 {print $4}')
+          NEED_KB=$((8 * 1024 * 1024))
+          if [ "$AVAIL_KB" -gt "$((NEED_KB + 2 * 1024 * 1024))" ]; then
+            sudo swapoff -a || true
+            sudo rm -f /swapfile
+            sudo fallocate -l "$SWAP_SIZE" /swapfile || \
+              sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=none
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+            free -h
+          else
+            echo "磁盘空间不足（可用 $((AVAIL_KB / 1024 / 1024))GB），跳过 swap，依赖默认内存"
+          fi
 
       - name: Install dependencies
         run: |
